@@ -1,9 +1,6 @@
-// Package einhorn allows you to communicate with the einhorn master from a Go
-// worker.
 package einhorn
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -41,31 +38,32 @@ func GetListener(index int) (net.Listener, error) {
 	return listener, nil
 }
 
+// IsWorker returns whether the current process is an einhorn worker.
+func IsWorker() bool {
+	masterPid := os.Getenv("EINHORN_MASTER_PID")
+	if masterPid == "" {
+		return false
+	}
+
+	pid, err := strconv.Atoi(masterPid)
+	if err != nil {
+		return false
+	}
+
+	return pid == os.Getppid()
+}
+
 // Ack sends an ack to the einhorn master.
 func Ack() error {
-	return sendToMaster(workerMessage{Command: "worker:ack", Pid: os.Getpid()})
-}
-
-type workerMessage struct {
-	Command string `json:"comand"`
-	Pid     int
-}
-
-func sendToMaster(msg workerMessage) error {
-	controlConn, err := net.Dial("unix", os.Getenv("EINHORN_SOCK_PATH"))
+	client, err := NewClientForPath(os.Getenv("EINHORN_SOCK_PATH"))
 	if err != nil {
 		return err
 	}
-	defer controlConn.Close()
 
-	e := json.NewEncoder(controlConn)
-	if err := e.Encode(msg); err != nil {
-		return err
-	}
+	defer client.Close()
 
-	if _, err := controlConn.Write([]byte("\n")); err != nil {
-		return err
-	}
-
-	return nil
+	return client.SendRequest(&ClientAckRequest{
+		Command: "worker:ack",
+		Pid:     os.Getpid(),
+	})
 }
